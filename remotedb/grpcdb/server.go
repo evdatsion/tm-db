@@ -57,43 +57,30 @@ var _ protodb.DBServer = (*server)(nil)
 //  * cleveldb (if built with gcc enabled)
 //  * fsdb
 //  * memdB
-//  * goleveldb
-// See https://godoc.org/github.com/evdatsion/tendermint/libs/db#BackendType
+//  * leveldb
+// See https://godoc.org/github.com/evdatsion/tendermint/libs/db#DBBackendType
 func (s *server) Init(ctx context.Context, in *protodb.Init) (*protodb.Entity, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var err error
-	s.db, err = db.NewDB(in.Name, db.BackendType(in.Type), in.Dir)
-	if err != nil {
-		return nil, err
-	}
+	s.db = db.NewDB(in.Name, db.DBBackendType(in.Type), in.Dir)
 	return &protodb.Entity{CreatedAt: time.Now().Unix()}, nil
 }
 
 func (s *server) Delete(ctx context.Context, in *protodb.Entity) (*protodb.Nothing, error) {
-	err := s.db.Delete(in.Key)
-	if err != nil {
-		return nil, err
-	}
+	s.db.Delete(in.Key)
 	return nothing, nil
 }
 
 var nothing = new(protodb.Nothing)
 
 func (s *server) DeleteSync(ctx context.Context, in *protodb.Entity) (*protodb.Nothing, error) {
-	err := s.db.DeleteSync(in.Key)
-	if err != nil {
-		return nil, err
-	}
+	s.db.DeleteSync(in.Key)
 	return nothing, nil
 }
 
 func (s *server) Get(ctx context.Context, in *protodb.Entity) (*protodb.Entity, error) {
-	value, err := s.db.Get(in.Key)
-	if err != nil {
-		return nil, err
-	}
+	value := s.db.Get(in.Key)
 	return &protodb.Entity{Value: value}, nil
 }
 
@@ -135,34 +122,22 @@ func (s *server) GetStream(ds protodb.DB_GetStreamServer) error {
 }
 
 func (s *server) Has(ctx context.Context, in *protodb.Entity) (*protodb.Entity, error) {
-	exists, err := s.db.Has(in.Key)
-	if err != nil {
-		return nil, err
-	}
+	exists := s.db.Has(in.Key)
 	return &protodb.Entity{Exists: exists}, nil
 }
 
 func (s *server) Set(ctx context.Context, in *protodb.Entity) (*protodb.Nothing, error) {
-	err := s.db.Set(in.Key, in.Value)
-	if err != nil {
-		return nil, err
-	}
+	s.db.Set(in.Key, in.Value)
 	return nothing, nil
 }
 
 func (s *server) SetSync(ctx context.Context, in *protodb.Entity) (*protodb.Nothing, error) {
-	err := s.db.SetSync(in.Key, in.Value)
-	if err != nil {
-		return nil, err
-	}
+	s.db.SetSync(in.Key, in.Value)
 	return nothing, nil
 }
 
 func (s *server) Iterator(query *protodb.Entity, dis protodb.DB_IteratorServer) error {
-	it, err := s.db.Iterator(query.Start, query.End)
-	if err != nil {
-		return err
-	}
+	it := s.db.Iterator(query.Start, query.End)
 	defer it.Close()
 	return s.handleIterator(it, dis.Send)
 }
@@ -170,31 +145,24 @@ func (s *server) Iterator(query *protodb.Entity, dis protodb.DB_IteratorServer) 
 func (s *server) handleIterator(it db.Iterator, sendFunc func(*protodb.Iterator) error) error {
 	for it.Valid() {
 		start, end := it.Domain()
-		key := it.Key()
-		value := it.Value()
-
 		out := &protodb.Iterator{
 			Domain: &protodb.Domain{Start: start, End: end},
 			Valid:  it.Valid(),
-			Key:    key,
-			Value:  value,
+			Key:    it.Key(),
+			Value:  it.Value(),
 		}
 		if err := sendFunc(out); err != nil {
 			return err
 		}
 
-		// Finally move the iterator forward,
+		// Finally move the iterator forward
 		it.Next()
-
 	}
 	return nil
 }
 
 func (s *server) ReverseIterator(query *protodb.Entity, dis protodb.DB_ReverseIteratorServer) error {
-	it, err := s.db.ReverseIterator(query.Start, query.End)
-	if err != nil {
-		return err
-	}
+	it := s.db.ReverseIterator(query.Start, query.End)
 	defer it.Close()
 	return s.handleIterator(it, dis.Send)
 }
@@ -218,27 +186,15 @@ func (s *server) batchWrite(c context.Context, b *protodb.Batch, sync bool) (*pr
 	for _, op := range b.Ops {
 		switch op.Type {
 		case protodb.Operation_SET:
-			err := bat.Set(op.Entity.Key, op.Entity.Value)
-			if err != nil {
-				return nil, err
-			}
+			bat.Set(op.Entity.Key, op.Entity.Value)
 		case protodb.Operation_DELETE:
-			err := bat.Delete(op.Entity.Key)
-			if err != nil {
-				return nil, err
-			}
+			bat.Delete(op.Entity.Key)
 		}
 	}
 	if sync {
-		err := bat.WriteSync()
-		if err != nil {
-			return nil, err
-		}
+		bat.WriteSync()
 	} else {
-		err := bat.Write()
-		if err != nil {
-			return nil, err
-		}
+		bat.Write()
 	}
 	return nothing, nil
 }
