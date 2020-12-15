@@ -5,7 +5,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/evdatsion/tm-db/remotedb"
@@ -22,7 +21,7 @@ func TestRemoteDB(t *testing.T) {
 	defer srv.Stop()
 	go func() {
 		if err := srv.Serve(ln); err != nil {
-			panic(err)
+			t.Fatalf("BindServer: %v", err)
 		}
 	}()
 
@@ -30,71 +29,54 @@ func TestRemoteDB(t *testing.T) {
 	require.Nil(t, err, "expecting a successful client creation")
 	dbName := "test-remote-db"
 	require.Nil(t, client.InitRemote(&remotedb.Init{Name: dbName, Type: "goleveldb"}))
-	defer os.RemoveAll(dbName + ".db")
+	defer func() {
+		err := os.RemoveAll(dbName + ".db")
+		if err != nil {
+			panic(err)
+		}
+	}()
 
 	k1 := []byte("key-1")
-	v1, err := client.Get(k1)
-	require.NoError(t, err)
+	v1 := client.Get(k1)
 	require.Equal(t, 0, len(v1), "expecting no key1 to have been stored, got %X (%s)", v1, v1)
 	vv1 := []byte("value-1")
-	err = client.Set(k1, vv1)
-	require.NoError(t, err)
-
-	gv1, err := client.Get(k1)
-	require.NoError(t, err)
+	client.Set(k1, vv1)
+	gv1 := client.Get(k1)
 	require.Equal(t, gv1, vv1)
 
 	// Simple iteration
-	itr, err := client.Iterator(nil, nil)
-	require.NoError(t, err)
-	assert.True(t, itr.Valid())
-
-	key1 := itr.Key()
-	value := itr.Value()
-
-	require.Equal(t, key1, []byte("key-1"))
-	require.Equal(t, value, []byte("value-1"))
+	itr := client.Iterator(nil, nil)
+	itr.Next()
+	require.Equal(t, itr.Key(), []byte("key-1"))
+	require.Equal(t, itr.Value(), []byte("value-1"))
+	require.Panics(t, itr.Next)
 	itr.Close()
 
 	// Set some more keys
 	k2 := []byte("key-2")
 	v2 := []byte("value-2")
-	err = client.SetSync(k2, v2)
-	require.NoError(t, err)
-	has, err := client.Has(k2)
-	require.NoError(t, err)
+	client.SetSync(k2, v2)
+	has := client.Has(k2)
 	require.True(t, has)
-	gv2, err := client.Get(k2)
-	require.NoError(t, err)
+	gv2 := client.Get(k2)
 	require.Equal(t, gv2, v2)
 
 	// More iteration
-	itr, err = client.Iterator(nil, nil)
-	require.NoError(t, err)
-
-	key1 = itr.Key()
-	value = itr.Value()
-
-	require.Equal(t, key1, []byte("key-1"))
-	require.Equal(t, value, []byte("value-1"))
+	itr = client.Iterator(nil, nil)
 	itr.Next()
-
-	key1 = itr.Key()
-
-	value = itr.Value()
-	require.Equal(t, key1, []byte("key-2"))
-	require.Equal(t, value, []byte("value-2"))
+	require.Equal(t, itr.Key(), []byte("key-1"))
+	require.Equal(t, itr.Value(), []byte("value-1"))
+	itr.Next()
+	require.Equal(t, itr.Key(), []byte("key-2"))
+	require.Equal(t, itr.Value(), []byte("value-2"))
+	require.Panics(t, itr.Next)
 	itr.Close()
 
 	// Deletion
-	err = client.Delete(k1)
-	require.NoError(t, err)
-	err = client.DeleteSync(k2)
-	require.NoError(t, err)
-	gv1, err = client.Get(k1)
-	require.NoError(t, err)
-	gv2, err = client.Get(k2)
-	require.NoError(t, err)
+	client.Delete(k1)
+	client.DeleteSync(k2)
+	gv1 = client.Get(k1)
+	gv2 = client.Get(k2)
 	require.Equal(t, len(gv2), 0, "after deletion, not expecting the key to exist anymore")
 	require.Equal(t, len(gv1), 0, "after deletion, not expecting the key to exist anymore")
 
@@ -106,62 +88,36 @@ func TestRemoteDB(t *testing.T) {
 	v4 := []byte("value-4")
 	v5 := []byte("value-5")
 	bat := client.NewBatch()
-	err = bat.Set(k3, v3)
-	require.NoError(t, err)
-	err = bat.Set(k4, v4)
-	require.NoError(t, err)
-
-	rv3, err := client.Get(k3)
-	require.NoError(t, err)
+	bat.Set(k3, v3)
+	bat.Set(k4, v4)
+	rv3 := client.Get(k3)
 	require.Equal(t, 0, len(rv3), "expecting no k3 to have been stored")
-
-	rv4, err := client.Get(k4)
-	require.NoError(t, err)
+	rv4 := client.Get(k4)
 	require.Equal(t, 0, len(rv4), "expecting no k4 to have been stored")
-	err = bat.Write()
-	require.NoError(t, err)
-
-	rv3, err = client.Get(k3)
-	require.NoError(t, err)
+	bat.Write()
+	rv3 = client.Get(k3)
 	require.Equal(t, rv3, v3, "expecting k3 to have been stored")
-
-	rv4, err = client.Get(k4)
-	require.NoError(t, err)
+	rv4 = client.Get(k4)
 	require.Equal(t, rv4, v4, "expecting k4 to have been stored")
 
 	// Batch tests - deletion
 	bat = client.NewBatch()
-	err = bat.Delete(k4)
-	require.NoError(t, err)
-	err = bat.Delete(k3)
-	require.NoError(t, err)
-	err = bat.WriteSync()
-	require.NoError(t, err)
-
-	rv3, err = client.Get(k3)
-	require.NoError(t, err)
+	bat.Delete(k4)
+	bat.Delete(k3)
+	bat.WriteSync()
+	rv3 = client.Get(k3)
 	require.Equal(t, 0, len(rv3), "expecting k3 to have been deleted")
-
-	rv4, err = client.Get(k4)
-	require.NoError(t, err)
+	rv4 = client.Get(k4)
 	require.Equal(t, 0, len(rv4), "expecting k4 to have been deleted")
 
 	// Batch tests - set and delete
 	bat = client.NewBatch()
-	err = bat.Set(k4, v4)
-	require.NoError(t, err)
-	err = bat.Set(k5, v5)
-	require.NoError(t, err)
-	err = bat.Delete(k4)
-	require.NoError(t, err)
-	err = bat.WriteSync()
-	require.NoError(t, err)
-
-	rv4, err = client.Get(k4)
-	require.NoError(t, err)
+	bat.Set(k4, v4)
+	bat.Set(k5, v5)
+	bat.Delete(k4)
+	bat.WriteSync()
+	rv4 = client.Get(k4)
 	require.Equal(t, 0, len(rv4), "expecting k4 to have been deleted")
-
-	rv5, err := client.Get(k5)
-	require.NoError(t, err)
+	rv5 := client.Get(k5)
 	require.Equal(t, rv5, v5, "expecting k5 to have been stored")
 }

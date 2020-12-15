@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-type BackendType string
+type DBBackendType string
 
 // These are valid backend types.
 const (
@@ -13,35 +13,32 @@ const (
 	// popular implementation)
 	//   - pure go
 	//   - stable
-	GoLevelDBBackend BackendType = "goleveldb"
+	GoLevelDBBackend DBBackendType = "goleveldb"
 	// CLevelDBBackend represents cleveldb (uses levigo wrapper)
 	//   - fast
 	//   - requires gcc
 	//   - use cleveldb build tag (go build -tags cleveldb)
-	CLevelDBBackend BackendType = "cleveldb"
-	// MemDBBackend represents in-memory key value store, which is mostly used
+	CLevelDBBackend DBBackendType = "cleveldb"
+	// MemDBBackend represents in-memoty key value store, which is mostly used
 	// for testing.
-	MemDBBackend BackendType = "memdb"
+	MemDBBackend DBBackendType = "memdb"
+	// FSDBBackend represents filesystem database
+	//	 - EXPERIMENTAL
+	//   - slow
+	FSDBBackend DBBackendType = "fsdb"
 	// BoltDBBackend represents bolt (uses etcd's fork of bolt -
 	// github.com/etcd-io/bbolt)
 	//   - EXPERIMENTAL
 	//   - may be faster is some use-cases (random reads - indexer)
 	//   - use boltdb build tag (go build -tags boltdb)
-	BoltDBBackend BackendType = "boltdb"
-	// RocksDBBackend represents rocksdb (uses github.com/tecbot/gorocksdb)
-	//   - EXPERIMENTAL
-	//   - requires gcc
-	//   - use rocksdb build tag (go build -tags rocksdb)
-	RocksDBBackend BackendType = "rocksdb"
-
-	BadgerDBBackend BackendType = "badgerdb"
+	BoltDBBackend DBBackendType = "boltdb"
 )
 
 type dbCreator func(name string, dir string) (DB, error)
 
-var backends = map[BackendType]dbCreator{}
+var backends = map[DBBackendType]dbCreator{}
 
-func registerDBCreator(backend BackendType, creator dbCreator, force bool) {
+func registerDBCreator(backend DBBackendType, creator dbCreator, force bool) {
 	_, ok := backends[backend]
 	if !force && ok {
 		return
@@ -50,20 +47,24 @@ func registerDBCreator(backend BackendType, creator dbCreator, force bool) {
 }
 
 // NewDB creates a new database of type backend with the given name.
-func NewDB(name string, backend BackendType, dir string) (DB, error) {
+// NOTE: function panics if:
+//   - backend is unknown (not registered)
+//   - creator function, provided during registration, returns error
+func NewDB(name string, backend DBBackendType, dir string) DB {
 	dbCreator, ok := backends[backend]
 	if !ok {
-		keys := make([]string, 0, len(backends))
+		keys := make([]string, len(backends))
+		i := 0
 		for k := range backends {
-			keys = append(keys, string(k))
+			keys[i] = string(k)
+			i++
 		}
-		return nil, fmt.Errorf("unknown db_backend %s, expected one of %v",
-			backend, strings.Join(keys, ","))
+		panic(fmt.Sprintf("Unknown db_backend %s, expected either %s", backend, strings.Join(keys, " or ")))
 	}
 
 	db, err := dbCreator(name, dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
+		panic(fmt.Sprintf("Error initializing DB: %v", err))
 	}
-	return db, nil
+	return db
 }
