@@ -58,7 +58,7 @@ var _ protodb.DBServer = (*server)(nil)
 //  * fsdb
 //  * memdB
 //  * goleveldb
-// See https://godoc.org/github.com/evdatsion/tendermint/libs/db#BackendType
+// See https://godoc.org/github.com/evdatsion/aphelion-dpos-bft/libs/db#BackendType
 func (s *server) Init(ctx context.Context, in *protodb.Init) (*protodb.Entity, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
